@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>User Portal - Inventaris ATK</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Babel untuk JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none;  scrollbar-width: none; }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #print-area, #print-area * { visibility: visible; }
+            #print-area { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; }
+            .print\:hidden { display: none !important; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+    <div id="root"></div>
+
+    <!-- Script Utama dengan type="text/babel" -->
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef, useMemo } from 'https://esm.sh/react@18.2.0';
+        import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
+        import { 
+            Package, ShoppingCart, History, Menu, Plus, Search, Trash2, Edit, Check, X, 
+            AlertTriangle, FileText, Printer, Camera, Upload, Save, 
+            Eraser, Users, Wifi, WifiOff, Calendar, ClipboardList, LogOut, ScanBarcode, QrCode,
+            Lock, User, Key, Unlock
+        } from 'https://esm.sh/lucide-react@0.303.0';
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { 
+            getFirestore, collection, addDoc, doc, onSnapshot, query, orderBy
+        } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { 
+            getAuth, signInAnonymously, onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+        // --- KONFIGURASI DATABASE (SAMA DENGAN ADMIN) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAn5SPEUZO8sIoYSL0YvRON80C-OzS7odA",
+            authDomain: "stock-atk-2a300.firebaseapp.com",
+            projectId: "stock-atk-2a300",
+            storageBucket: "stock-atk-2a300.firebasestorage.app",
+            messagingSenderId: "800795365519",
+            appId: "1:800795365519:web:766e630bd962235ba8e0fa"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const appId = 'stock-atk-prod'; 
+
+        // --- HELPERS ---
+        const formatRupiah = (number) => {
+            const val = Number(number) || 0;
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
+        };
+
+        // --- COMPONENTS ---
+
+        const NavItem = ({ icon, label, isActive, onClick, isOpen, isLocked }) => (
+            <button onClick={onClick} className={`w-full flex items-center px-4 py-3 transition-colors ${isActive ? 'bg-slate-800 border-r-4 border-blue-500 text-blue-400' : 'text-slate-300 hover:bg-slate-800'}`}>
+                <span className="mr-3 relative">
+                    {icon}
+                    {isLocked && <span className="absolute -top-1 -right-1 bg-slate-900 rounded-full p-0.5"><Lock size={10} className="text-gray-400"/></span>}
+                </span>
+                {isOpen && <span className="flex-1 text-left text-sm font-medium whitespace-nowrap">{label}</span>}
+            </button>
+        );
+
+        // --- SIGNATURE PAD ---
+        class SignaturePad extends React.Component {
+            constructor(props) {
+                super(props);
+                this.canvasRef = React.createRef();
+                this.isDrawing = false;
+                this.hasContent = false;
+                this.ctx = null;
+            }
+
+            componentDidMount() {
+                this.initCanvas();
+                window.addEventListener('resize', this.handleResize);
+            }
+
+            componentWillUnmount() {
+                window.removeEventListener('resize', this.handleResize);
+            }
+
+            initCanvas = () => {
+                const canvas = this.canvasRef.current;
+                if (!canvas) return;
+                const rect = canvas.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                this.ctx = canvas.getContext('2d');
+                this.setupContext();
+            }
+
+            setupContext = () => {
+                if (this.ctx) {
+                    this.ctx.lineWidth = 2;
+                    this.ctx.lineCap = 'round';
+                    this.ctx.lineJoin = 'round';
+                    this.ctx.strokeStyle = '#000000';
+                }
+            }
+
+            handleResize = () => this.initCanvas();
+
+            startDrawing = (e) => {
+                const { offsetX, offsetY } = this.getCoordinates(e);
+                this.ctx.beginPath();
+                this.ctx.moveTo(offsetX, offsetY);
+                this.isDrawing = true;
+                this.hasContent = true;
+            }
+
+            draw = (e) => {
+                if (!this.isDrawing) return;
+                const { offsetX, offsetY } = this.getCoordinates(e);
+                this.ctx.lineTo(offsetX, offsetY);
+                this.ctx.stroke();
+            }
+
+            stopDrawing = () => {
+                if (this.isDrawing) {
+                    this.ctx.closePath();
+                    this.isDrawing = false;
+                }
+            }
+
+            getCoordinates = (e) => {
+                const canvas = this.canvasRef.current;
+                const rect = canvas.getBoundingClientRect();
+                let clientX, clientY;
+                if (e.touches && e.touches.length > 0) {
+                    clientX = e.touches[0].clientX;
+                    clientY = e.touches[0].clientY;
+                } else {
+                    clientX = e.clientX;
+                    clientY = e.clientY;
+                }
+                return { offsetX: clientX - rect.left, offsetY: clientY - rect.top };
+            }
+
+            clear = () => {
+                const canvas = this.canvasRef.current;
+                this.ctx.clearRect(0, 0, canvas.width, canvas.height);
+                this.hasContent = false;
+            }
+
+            isEmpty = () => !this.hasContent;
+            getTrimmedCanvas = () => this.canvasRef.current;
+
+            render() {
+                return (
+                    <canvas
+                        ref={this.canvasRef}
+                        className="w-full h-full cursor-crosshair block touch-none"
+                        onMouseDown={this.startDrawing}
+                        onMouseMove={this.draw}
+                        onMouseUp={this.stopDrawing}
+                        onMouseLeave={this.stopDrawing}
+                        onTouchStart={this.startDrawing}
+                        onTouchMove={this.draw}
+                        onTouchEnd={this.stopDrawing}
+                    />
+                );
+            }
+        }
+
+        // --- LOGIN SCREEN (EMBEDDED) ---
+        const LoginScreen = ({ onLogin }) => {
+            const [username, setUsername] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (username === 'admin' && password === 'admin123') {
+                    onLogin();
+                } else {
+                    setError('Username atau Password salah!');
+                }
+            };
+
+            return (
+                <div className="h-full flex items-center justify-center p-4">
+                    <div className="bg-white p-8 rounded-xl shadow-lg max-w-sm w-full border border-gray-200">
+                        <div className="text-center mb-6">
+                            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
+                                <Lock size={32} />
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-800">Login Diperlukan</h2>
+                            <p className="text-sm text-gray-500">Menu ini khusus untuk Staff Terdaftar</p>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                                        <User size={18} />
+                                    </div>
+                                    <input 
+                                        type="text" 
+                                        className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                        placeholder="Username"
+                                        value={username}
+                                        onChange={(e) => setUsername(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                <div className="relative">
+                                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                                        <Key size={18} />
+                                    </div>
+                                    <input 
+                                        type="password" 
+                                        className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                        placeholder="Password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            
+                            {error && <p className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">{error}</p>}
+                            
+                            <button type="submit" className="w-full bg-blue-600 text-white py-2.5 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-md">
+                                Masuk
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const PrintView = ({ data, onClose }) => {
+            const isWithdrawal = data.type === 'withdrawal';
+            const title = isWithdrawal ? 'Formulir Pengambilan Barang' : 'Formulir Permintaan Barang';
+            const docCode = isWithdrawal ? 'OUT' : 'REQ';
+
+            return (
+                <div className="fixed inset-0 bg-gray-800 z-50 overflow-auto flex flex-col items-center pt-10 pb-10">
+                    <div className="bg-white w-[210mm] min-h-[297mm] p-[10mm] md:p-[20mm] shadow-2xl relative text-black text-sm md:text-base" id="print-area">
+                        <div className="border-b-4 border-black pb-4 mb-6 flex justify-between items-end">
+                            <div>
+                                <h1 className="text-2xl md:text-3xl font-bold uppercase tracking-wider">{title}</h1>
+                                <p className="mt-1">No: {docCode}/{data.id ? data.id.slice(0, 8) : 'DRAFT'}/{new Date().getFullYear()}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="font-bold text-lg uppercase">DEPARTEMEN {data.department}</p>
+                                <p className="text-xs">Dokumen Internal</p>
+                            </div>
+                        </div>
+
+                        <div className="mb-6 grid grid-cols-2 gap-x-8 gap-y-2">
+                            <div className="flex"><span className="w-24 font-bold">Tanggal</span><span>: {data.date}</span></div>
+                            <div className="flex"><span className="w-24 font-bold">Periode</span><span>: {data.period || '-'}</span></div>
+                            <div className="flex"><span className="w-24 font-bold">Departemen</span><span>: {data.department}</span></div>
+                            <div className="flex"><span className="w-24 font-bold">Nama</span><span>: {data.userName}</span></div>
+                            <div className="flex"><span className="w-24 font-bold">Status</span><span className="uppercase font-bold">: {data.status}</span></div>
+                        </div>
+
+                        <div className="mb-8">
+                            <table className="w-full border-collapse border border-black text-sm">
+                                <thead>
+                                    <tr className="bg-gray-200">
+                                        <th className="border border-black px-2 py-2 w-10">No</th>
+                                        <th className="border border-black px-2 py-2 text-left">Kode</th>
+                                        <th className="border border-black px-2 py-2 text-left">Nama Barang</th>
+                                        <th className="border border-black px-2 py-2 w-16">Qty</th>
+                                        <th className="border border-black px-2 py-2">Unit</th>
+                                        <th className="border border-black px-2 py-2">Harga</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {data.items && data.items.map((item, idx) => (
+                                        <tr key={idx}>
+                                            <td className="border border-black px-2 py-2 text-center">{idx + 1}</td>
+                                            <td className="border border-black px-2 py-2 font-mono text-xs">{item.code || '-'}</td>
+                                            <td className="border border-black px-2 py-2">{item.name} {item.type === 'manual' && '*'}</td>
+                                            <td className="border border-black px-2 py-2 text-center font-bold">{Number(item.qty)}</td>
+                                            <td className="border border-black px-2 py-2 text-center">{item.unit || 'Pcs'}</td>
+                                            <td className="border border-black px-2 py-2 text-center">{formatRupiah(item.price || 0)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="flex justify-between mt-12 px-4 md:px-10">
+                            <div className="text-center">
+                                <p className="mb-12 font-bold">{isWithdrawal ? 'Diambil Oleh,' : 'Diajukan Oleh,'}</p>
+                                {data.signature ? <img src={data.signature} className="h-16 mx-auto -mt-8 mb-2" /> : <div className="h-16"></div>}
+                                <p className="font-bold underline">{data.userName}</p>
+                                <p className="text-sm">Staff {data.department}</p>
+                            </div>
+                            <div className="text-center">
+                                <p className="mb-12 font-bold">Disetujui Oleh,</p>
+                                <div className="h-16"></div>
+                                <p className="font-bold underline">__________________</p>
+                                <p className="text-sm">Manager / Kepala Bagian</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="fixed top-5 right-5 flex gap-3 print:hidden">
+                        <button onClick={onClose} className="bg-gray-600 text-white px-4 py-2 rounded shadow flex items-center gap-2"><X size={18} /> Tutup</button>
+                        <button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-2 rounded shadow flex items-center gap-2 font-bold"><Printer size={18} /> Cetak</button>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- USER REQUEST FORM COMPONENT ---
+        const UserRequestForm = ({ items, onSubmit, formType }) => {
+            const [name, setName] = useState('');
+            const [department, setDepartment] = useState('');
+            const [isManualDept, setIsManualDept] = useState(false);
+            
+            const [requestDate, setRequestDate] = useState(new Date().toISOString().split('T')[0]);
+            const [period, setPeriod] = useState('');
+            
+            const [inputMode, setInputMode] = useState('master'); 
+            const [selectedItemId, setSelectedItemId] = useState('');
+            const [qty, setQty] = useState(1);
+            const [scanCode, setScanCode] = useState('');
+            const [manualName, setManualName] = useState('');
+            const [manualPhoto, setManualPhoto] = useState(null); 
+            const [requestList, setRequestList] = useState([]);
+            
+            const sigCanvas = useRef(null);
+            const [signatureData, setSignatureData] = useState(null);
+            const scanInputRef = useRef(null); 
+
+            const selectedMasterItem = items.find(i => i.id === selectedItemId);
+            const months = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
+
+            const isWithdrawal = formType === 'withdrawal';
+            const themeColor = isWithdrawal ? 'orange' : 'blue';
+            const title = isWithdrawal ? 'Form Pengambilan Barang' : 'Form Permintaan Barang';
+
+            useEffect(() => {
+                if (inputMode === 'scan' && scanInputRef.current) {
+                scanInputRef.current.focus();
+                }
+            }, [inputMode]);
+
+            const handleAddItem = () => {
+                if (inputMode === 'manual') {
+                if (!manualName) return alert('Nama barang harus diisi');
+                const newItem = { type: 'manual', name: manualName, code: 'MANUAL', qty: parseInt(qty) || 1, price: 0, photo: manualPhoto };
+                setRequestList([...requestList, newItem]);
+                setManualName(''); setManualPhoto(null); setQty(1);
+                } else if (inputMode === 'master') {
+                if (!selectedItemId) return alert('Pilih barang');
+                const newItem = { 
+                    type: 'master', 
+                    itemId: selectedMasterItem.id,
+                    code: selectedMasterItem.code || '-',
+                    name: selectedMasterItem.name, 
+                    qty: parseInt(qty) || 1, 
+                    price: selectedMasterItem.price || 0, 
+                    unit: selectedMasterItem.unit || '-' 
+                };
+                setRequestList([...requestList, newItem]);
+                setSelectedItemId(''); setQty(1);
+                } else if (inputMode === 'scan') {
+                if (!scanCode) return alert('Kode scan kosong');
+                const foundItem = items.find(i => 
+                    (i.code && i.code.toLowerCase() === scanCode.toLowerCase()) || 
+                    (i.name && i.name.toLowerCase() === scanCode.toLowerCase()) ||
+                    (i.id === scanCode)
+                );
+
+                if (foundItem) {
+                    const newItem = {
+                    type: 'master',
+                    itemId: foundItem.id,
+                    code: foundItem.code || '-',
+                    name: foundItem.name,
+                    qty: parseInt(qty) || 1,
+                    price: foundItem.price || 0,
+                    unit: foundItem.unit || '-'
+                    };
+                    setRequestList([...requestList, newItem]);
+                    setScanCode(''); 
+                    setQty(1);
+                    scanInputRef.current?.focus(); 
+                } else {
+                    alert('Barang tidak ditemukan.');
+                }
+                }
+            };
+
+            const handleScanKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddItem();
+                }
+            };
+
+            const handlePhotoUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                if (file.size > 800000) { alert("Ukuran foto maks 800KB"); return; }
+                const reader = new FileReader();
+                reader.onloadend = () => setManualPhoto(reader.result);
+                reader.readAsDataURL(file);
+                }
+            };
+
+            const clearSignature = () => {
+                if (sigCanvas.current && typeof sigCanvas.current.clear === 'function') {
+                sigCanvas.current.clear();
+                setSignatureData(null);
+                }
+            };
+
+            const handleSubmit = () => {
+                if (!name || !department) return alert('Lengkapi data diri');
+                if (!requestDate || (!isWithdrawal && !period)) return alert('Lengkapi tanggal' + (!isWithdrawal ? ' & periode' : ''));
+                if (requestList.length === 0) return alert('Daftar barang kosong');
+                
+                let finalSig = signatureData;
+                if (!finalSig && sigCanvas.current && !sigCanvas.current.isEmpty()) {
+                finalSig = sigCanvas.current.getTrimmedCanvas().toDataURL('image/png');
+                }
+                
+                if (!finalSig) return alert('Tanda tangan diperlukan');
+
+                onSubmit({ name, department, date: requestDate, period: isWithdrawal ? '-' : period, items: requestList, signature: finalSig, formType });
+            };
+
+            return (
+                <div className="max-w-4xl mx-auto space-y-8 pb-20">
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 className={`text-lg font-bold text-gray-800 border-b pb-3 mb-4 flex items-center gap-2`}>
+                    <div className={`p-1.5 rounded bg-${themeColor}-100 text-${themeColor}-600`}>
+                        {isWithdrawal ? <ClipboardList size={20}/> : <FileText size={20}/>}
+                    </div>
+                    {title}
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nama Lengkap</label>
+                        <input type="text" className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Nama Anda" value={name} onChange={(e) => setName(e.target.value)}/>
+                    </div>
+                    <div>
+                        <div className="flex justify-between items-center mb-1">
+                        <label className="block text-sm font-medium text-gray-700">Departemen / Divisi</label>
+                        <button onClick={() => { setIsManualDept(!isManualDept); setDepartment(''); }} className="text-xs text-blue-600 underline font-medium">
+                            {isManualDept ? 'Pilih List' : 'Input Manual'}
+                        </button>
+                        </div>
+                        {isManualDept ? (
+                        <input type="text" className="w-full border rounded-lg p-2.5 bg-yellow-50" placeholder="Ketik Departemen..." value={department} onChange={(e) => setDepartment(e.target.value)}/>
+                        ) : (
+                        <select className="w-full border rounded-lg p-2.5" value={department} onChange={(e) => setDepartment(e.target.value)}>
+                            <option value="">-- Pilih --</option>
+                            <option>HRD</option><option>Finance</option><option>IT</option><option>Operasional</option><option>Marketing</option><option>Gudang</option><option>Umum</option><option>Direksi</option>
+                        </select>
+                        )}
+                    </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Tanggal {isWithdrawal ? 'Pengambilan' : 'Permintaan'}</label>
+                        <div className="relative">
+                            <input type="date" className="w-full border rounded-lg p-2.5" value={requestDate} onChange={(e) => setRequestDate(e.target.value)}/>
+                            <Calendar className="absolute right-3 top-2.5 text-gray-400 pointer-events-none" size={18}/>
+                        </div>
+                    </div>
+                    
+                    {!isWithdrawal && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Periode Pengajuan</label>
+                            <select className="w-full border rounded-lg p-2.5" value={period} onChange={(e) => setPeriod(e.target.value)}>
+                            <option value="">-- Pilih Periode --</option>
+                            {months.map((m) => <option key={m} value={`${m} ${new Date().getFullYear()}`}>{m} {new Date().getFullYear()}</option>)}
+                            </select>
+                        </div>
+                    )}
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <div className="flex justify-between items-center border-b pb-3 mb-4">
+                    <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2"><Package size={20} className={`text-${themeColor}-600`}/> Rincian Barang</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end bg-gray-50 p-4 rounded-lg">
+                    
+                    <div className="md:col-span-12 flex gap-2 mb-2">
+                        <button onClick={() => { setInputMode('master'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'master' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Search size={14}/> Cari Manual</button>
+                        {isWithdrawal && <button onClick={() => { setInputMode('scan'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'scan' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600'}`}><ScanBarcode size={14}/> Scan Barcode</button>}
+                        <button onClick={() => { setInputMode('manual'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'manual' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Plus size={14}/> Input Baru</button>
+                    </div>
+
+                    {inputMode === 'master' && (
+                        <>
+                        <div className="md:col-span-6">
+                            <label className="block text-xs font-bold text-gray-500 uppercase">Pilih Barang</label>
+                            <select className="w-full border rounded-lg p-2.5 bg-white" value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}>
+                            <option value="">-- Cari Barang --</option>
+                            {items.map(i => <option key={i.id} value={i.id}>{i.code ? `[${i.code}] ` : ''}{i.name} ({i.unit})</option>)}
+                            </select>
+                        </div>
+                        <div className="md:col-span-2">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Stok</label>
+                            <div className="w-full bg-gray-200 rounded-lg p-2.5 text-center font-bold text-gray-700">{selectedMasterItem ? selectedMasterItem.stock : '-'}</div>
+                        </div>
+                        </>
+                    )}
+
+                    {inputMode === 'scan' && (
+                        <>
+                        <div className="md:col-span-6">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 text-orange-600">Scan Barcode / ID Barang</label>
+                            <div className="relative">
+                            <input ref={scanInputRef} type="text" className="w-full border-2 border-orange-300 rounded-lg p-2.5 pl-9 outline-none focus:border-orange-500" placeholder="Scan disini..." value={scanCode} onChange={(e) => setScanCode(e.target.value)} onKeyDown={handleScanKeyDown}/>
+                            <ScanBarcode className="absolute left-3 top-3 text-orange-400" size={18}/>
+                            </div>
+                            <p className="text-xs text-gray-400 mt-1">*Tekan Enter setelah scan</p>
+                        </div>
+                        <div className="md:col-span-2"></div>
+                        </>
+                    )}
+
+                    {inputMode === 'manual' && (
+                        <>
+                        <div className="md:col-span-5">
+                            <label className="block text-xs font-bold text-gray-500 uppercase">Nama Barang (Manual)</label>
+                            <input type="text" className="w-full border rounded-lg p-2.5" placeholder="Contoh: Lampu Meja" value={manualName} onChange={(e) => setManualName(e.target.value)}/>
+                        </div>
+                        <div className="md:col-span-3">
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Foto</label>
+                            <label className="flex items-center justify-center w-full p-2 border border-dashed border-gray-400 rounded-lg cursor-pointer bg-white">
+                                <Camera size={18} className="text-gray-500 mr-2"/>
+                                <span className="text-xs text-gray-600 truncate">{manualPhoto ? 'Ada' : 'Upload'}</span>
+                                <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} />
+                            </label>
+                        </div>
+                        </>
+                    )}
+
+                    <div className="md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Jumlah</label>
+                        <input type="number" min="1" className="w-full border rounded-lg p-2.5 text-center" value={qty} onChange={(e) => setQty(e.target.value)}/>
+                    </div>
+                    
+                    <div className="md:col-span-2">
+                        <button onClick={handleAddItem} className={`w-full bg-${themeColor}-600 hover:bg-${themeColor}-700 text-white p-2.5 rounded-lg font-medium flex items-center justify-center gap-2`}><Plus size={18}/> Tambah</button>
+                    </div>
+                    </div>
+
+                    <div className="mt-6">
+                    <h4 className="text-sm font-bold text-gray-700 mb-2">Daftar Barang:</h4>
+                    {requestList.length === 0 ? <div className="text-center py-8 border-2 border-dashed rounded-lg text-gray-400 text-sm">Belum ada barang ditambahkan.</div> : (
+                        <div className="overflow-x-auto border rounded-lg">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-100 text-gray-600 uppercase text-xs">
+                            <tr><th className="px-4 py-3 w-10">No</th><th className="px-4 py-3">Kode</th><th className="px-4 py-3">Barang</th><th className="px-4 py-3 text-center">Qty</th><th className="px-4 py-3 text-right">Aksi</th></tr>
+                            </thead>
+                            <tbody>
+                            {requestList.map((item, idx) => (
+                                <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                                <td className="px-4 py-3 text-center">{idx + 1}</td>
+                                <td className="px-4 py-3 font-mono text-blue-600">{item.code || '-'}</td>
+                                <td className="px-4 py-3 font-medium">{String(item.name)} {item.type === 'manual' && <span className="ml-2 text-xs bg-orange-100 text-orange-700 px-1 rounded">Manual</span>}</td>
+                                <td className="px-4 py-3 text-center font-bold">{Number(item.qty)}</td>
+                                <td className="px-4 py-3 text-right"><button onClick={() => {const nl=[...requestList];nl.splice(idx,1);setRequestList(nl)}} className="text-red-500"><Trash2 size={18}/></button></td>
+                                </tr>
+                            ))}
+                            </tbody>
+                        </table>
+                        </div>
+                    )}
+                    </div>
+                </div>
+
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2"><Edit size={20} className={`text-${themeColor}-600`}/> Tanda Tangan {isWithdrawal ? 'Pengambil' : 'Pemohon'}</h3>
+                    <div className="border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 relative h-48 w-full md:w-96 mx-auto">
+                    <SignaturePad ref={sigCanvas} />
+                    <button onClick={clearSignature} className="absolute top-2 right-2 bg-white p-1 shadow rounded text-gray-500 hover:text-red-500"><Eraser size={16}/></button>
+                    <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none text-xs text-gray-400">Area Tanda Tangan</div>
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-4">
+                    <button className="px-6 py-3 rounded-lg text-gray-600 hover:bg-gray-100 font-medium">Batal</button>
+                    <button onClick={handleSubmit} className={`px-8 py-3 rounded-lg bg-${themeColor}-600 hover:bg-${themeColor}-700 text-white font-bold shadow-lg flex items-center gap-2`}>
+                    <Save size={20}/> Simpan & Cetak
+                    </button>
+                </div>
+                </div>
+            );
+        };
+
+        // --- USER TRANSACTION HISTORY ---
+        const UserTransactionHistory = ({ requests, onViewPdf }) => (
+            <div className="bg-white p-6 rounded-xl shadow-sm">
+                <h2 className="text-xl font-bold mb-6">Riwayat Saya</h2>
+                <div className="space-y-4">
+                {requests.length === 0 ? <p className="text-gray-400">Belum ada data.</p> : null}
+                {requests.map(req => (
+                    <div key={req.id} className="border p-4 rounded-lg flex justify-between items-center hover:bg-gray-50">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 text-xs rounded font-bold ${req.status === 'Approved' ? 'bg-green-100 text-green-700' : req.status === 'Rejected' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{req.status}</span>
+                            {req.type === 'withdrawal' && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded font-bold">Pengambilan</span>}
+                            <span className="text-gray-500 text-sm">#{req.id.slice(0, 6)}</span>
+                        </div>
+                        <p className="font-bold mt-1">{req.items ? req.items.length : 0} Barang</p>
+                        <p className="text-xs text-gray-400">{req.date}</p>
+                    </div>
+                    <button onClick={() => onViewPdf(req)} className="text-blue-600 hover:underline text-sm flex items-center gap-1"><FileText size={16}/> Dokumen</button>
+                    </div>
+                ))}
+                </div>
+            </div>
+        );
+
+        // --- MAIN APP ---
+        function App() {
+            const [user, setUser] = useState(null);
+            const [items, setItems] = useState([]);
+            const [requests, setRequests] = useState([]);
+            // DEFAULT VIEW: Pengambilan (Public)
+            const [activeView, setActiveView] = useState('user-withdrawal');
+            const [isSidebarOpen, setSidebarOpen] = useState(false);
+            const [notification, setNotification] = useState(null);
+            const [printData, setPrintData] = useState(null);
+            
+            // Login State
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+            const showNotification = (msg, type = 'success') => {
+                setNotification({ message: msg, type });
+                setTimeout(() => setNotification(null), 3000);
+            };
+
+            // Auth
+            useEffect(() => {
+                const init = async () => {
+                    try { await signInAnonymously(auth); } catch (e) { console.error(e); }
+                };
+                init();
+                return onAuthStateChanged(auth, setUser);
+            }, []);
+
+            // Data Sync (Read Only for Items)
+            useEffect(() => {
+                if (!user) return;
+                const unsubItems = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'items'), s => setItems(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>(a.name||'').localeCompare(b.name||''))));
+                const unsubReq = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), s => setRequests(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>new Date(b.createdAt||b.date)-new Date(a.createdAt||a.date))));
+                return () => { unsubItems(); unsubReq(); };
+            }, [user]);
+            
+            // Auto-Add Manual items to Master & Submit
+            const handleUserSubmit = async (formData) => {
+                if (!user) return;
+                try {
+                    const processedItems = await Promise.all(formData.items.map(async (item) => {
+                        if (item.type === 'manual') {
+                            const existingItem = items.find(i => (i.name || '').toLowerCase() === (item.name || '').toLowerCase());
+                            if (existingItem) {
+                                return { ...item, type: 'master', itemId: existingItem.id, code: existingItem.code, unit: existingItem.unit || 'Pcs', price: existingItem.price || 0 };
+                            } else {
+                                try {
+                                    const newCode = `MAN-${Date.now().toString().slice(-6)}`;
+                                    const newItemData = {
+                                        name: item.name, code: newCode, stock: 0, unit: 'Pcs', price: 0, category: 'Umum', createdAt: new Date().toISOString(), minStock: 5
+                                    };
+                                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), newItemData);
+                                    return { ...item, type: 'master', itemId: docRef.id, code: newCode, unit: 'Pcs', price: 0 };
+                                } catch (err) { return item; }
+                            }
+                        }
+                        return item;
+                    }));
+
+                    const newRequest = {
+                        type: formData.formType, date: formData.date, period: formData.period,
+                        createdAt: new Date().toISOString(), userId: user.uid,
+                        userName: formData.name, department: formData.department,
+                        items: processedItems, signature: formData.signature, status: 'Pending'
+                    };
+
+                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), newRequest);
+                    setPrintData({ id: docRef.id, ...newRequest }); 
+                    showNotification('Terkirim & Master Data Diupdate!');
+                } catch (e) { showNotification('Gagal mengirim', 'error'); }
+            };
+            
+            // NAVIGATION HANDLER
+            const handleNavClick = (view) => {
+                if (view === 'user-withdrawal') {
+                    // Public Access
+                    setActiveView(view);
+                } else {
+                    // Protected Access
+                    if (isLoggedIn) {
+                        setActiveView(view);
+                    } else {
+                        setActiveView('login');
+                    }
+                }
+                setSidebarOpen(false);
+            };
+
+            const handleLoginSuccess = () => {
+                setIsLoggedIn(true);
+                setActiveView('user-form'); // Default redirect after login
+            };
+
+            if (printData) return <PrintView data={printData} onClose={() => {setPrintData(null); setActiveView(isLoggedIn ? 'user-transactions' : 'user-withdrawal')}} />;
+
+            return (
+                <div className="flex h-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
+                    {/* Sidebar */}
+                    <aside className={`bg-slate-900 text-white transition-all duration-300 ease-in-out flex flex-col shadow-xl z-20 absolute md:relative h-full ${isSidebarOpen ? 'w-64' : 'w-0 md:w-20'}`}
+                        onMouseEnter={() => window.innerWidth >= 768 && setSidebarOpen(true)}
+                        onMouseLeave={() => window.innerWidth >= 768 && setSidebarOpen(false)}
+                    >
+                        <div className="p-4 border-b border-slate-700 flex justify-between items-center">
+                             {(isSidebarOpen || window.innerWidth >= 768) && <h1 className={`font-bold text-xl tracking-wider text-blue-400 whitespace-nowrap transition-opacity duration-300 ${isSidebarOpen ? 'opacity-100' : 'md:opacity-0'}`}>USER MENU</h1>}
+                            <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-700 rounded md:hidden"><X size={20}/></button>
+                        </div>
+                        <nav className="flex-1 py-6 space-y-1 overflow-y-auto no-scrollbar">
+                            <NavItem icon={<ClipboardList size={20}/>} label="Pengambilan" isActive={activeView==='user-withdrawal'} onClick={()=>handleNavClick('user-withdrawal')} isOpen={isSidebarOpen} />
+                            <NavItem icon={<FileText size={20}/>} label="Permintaan" isActive={activeView==='user-form'} onClick={()=>handleNavClick('user-form')} isOpen={isSidebarOpen} isLocked={!isLoggedIn} />
+                            <NavItem icon={<History size={20}/>} label="Riwayat Saya" isActive={activeView==='user-transactions'} onClick={()=>handleNavClick('user-transactions')} isOpen={isSidebarOpen} isLocked={!isLoggedIn} />
+                        </nav>
+                        <div className="p-4 border-t border-slate-700">
+                            <div className={`flex items-center ${!isSidebarOpen && 'justify-center'}`}>
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold bg-orange-500">U</div>
+                                {isSidebarOpen && <div className="ml-3"><p className="text-sm font-medium">User Access</p><div className="flex items-center gap-1 text-xs text-green-400"><Wifi size={10}/> Online</div></div>}
+                            </div>
+                        </div>
+                    </aside>
+                    
+                    {/* Main Content */}
+                    <main className="flex-1 flex flex-col overflow-hidden relative w-full">
+                        <header className="h-16 bg-white border-b flex items-center justify-between px-4 md:px-6 shadow-sm z-10 shrink-0">
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="md:hidden p-1 text-gray-600"><Menu size={24}/></button>
+                                <h2 className="text-lg font-semibold text-gray-700">
+                                    {activeView === 'user-withdrawal' ? 'Form Pengambilan (Umum)' : 
+                                     activeView === 'login' ? 'Login Staff' :
+                                     activeView === 'user-form' ? 'Form Permintaan (Staff)' : 'Riwayat Pengajuan'}
+                                </h2>
+                            </div>
+                            {isLoggedIn ? 
+                                <button onClick={() => {setIsLoggedIn(false); setActiveView('user-withdrawal');}} className="text-gray-500 hover:text-red-600 p-2 flex items-center gap-2" title="Keluar">
+                                    <span className="text-xs font-bold hidden md:inline">Logout</span> <LogOut size={20}/>
+                                </button> : 
+                                <div className="text-xs text-gray-400 italic">Guest Mode</div>
+                            }
+                        </header>
+                        
+                        <div className="flex-1 overflow-auto p-4 md:p-6 bg-gray-50">
+                            {activeView === 'login' && <LoginScreen onLogin={handleLoginSuccess}/>}
+                            {activeView === 'user-form' && <UserRequestForm items={items} onSubmit={handleUserSubmit} formType="request"/>}
+                            {activeView === 'user-withdrawal' && <UserRequestForm items={items} onSubmit={handleUserSubmit} formType="withdrawal"/>}
+                            {activeView === 'user-transactions' && <UserTransactionHistory requests={requests} onViewPdf={(req)=>setPrintData(req)}/>}
+                        </div>
+
+                        <footer className="bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
+                            &copy; 2026 Direktorat Operation - Dept Operational Support
+                        </footer>
+                    </main>
+                    
+                    {notification && <div className={`fixed bottom-5 right-5 px-6 py-3 rounded-lg shadow-lg text-white z-50 ${notification.type === 'error' ? 'bg-red-500' : 'bg-green-600'}`}>{notification.message}</div>}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(React.createElement(App));
+    </script>
+</body>
+</html>
