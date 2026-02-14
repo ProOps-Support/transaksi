@@ -93,7 +93,12 @@
         const ScannerModal = ({ onScanSuccess, onClose }) => {
             useEffect(() => {
                 const html5QrCode = new Html5Qrcode("reader");
-                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                // Konfigurasi aspectRatio 1.0 membuat kamera berbentuk kotak
+                const config = { 
+                    fps: 10, 
+                    qrbox: { width: 250, height: 250 },
+                    aspectRatio: 1.0 
+                };
                 
                 html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
                     html5QrCode.stop().then(() => {
@@ -116,7 +121,8 @@
             return (
                 <div className="fixed inset-0 z-[60] bg-black bg-opacity-90 flex flex-col items-center justify-center p-4">
                     <div className="bg-white p-2 rounded-lg w-full max-w-sm relative">
-                        <div id="reader" className="w-full h-64 bg-gray-200 rounded overflow-hidden"></div>
+                        {/* Menggunakan aspect-square agar tampilan kamera menjadi kotak proporsional */}
+                        <div id="reader" className="w-full aspect-square bg-gray-200 rounded overflow-hidden"></div>
                         <p className="text-center text-sm font-bold mt-2 text-gray-600">Arahkan kamera ke QR Code</p>
                     </div>
                     <button onClick={onClose} className="mt-6 bg-red-600 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
