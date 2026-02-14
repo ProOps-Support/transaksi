@@ -45,7 +45,7 @@
             Package, ShoppingCart, History, Menu, Plus, Search, Trash2, Edit, Check, X, 
             AlertTriangle, FileText, Printer, Camera, Upload, Save, 
             Eraser, Users, Wifi, WifiOff, Calendar, ClipboardList, LogOut, ScanBarcode, QrCode,
-            Lock, User, Key, Unlock, Zap, Settings, Mail, Shield, Info, Send, Eye, EyeOff
+            Lock, User, Key, Unlock, Zap, Settings, Mail, Shield, Info, Send, Eye, EyeOff, MinusCircle, PlusCircle
         } from 'https://esm.sh/lucide-react@0.303.0';
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -661,6 +661,10 @@
             const [manualName, setManualName] = useState('');
             const [manualPhoto, setManualPhoto] = useState(null); 
             const [requestList, setRequestList] = useState([]);
+
+            // -- NEW: State untuk Modal Qty Barang Scan --
+            const [tempScannedItem, setTempScannedItem] = useState(null);
+            const [showQtyInput, setShowQtyInput] = useState(false);
             
             // Scanner State
             const [showScanner, setShowScanner] = useState(false);
@@ -691,23 +695,40 @@
                 );
 
                 if (foundItem) {
-                    const newItem = {
-                        type: 'master',
-                        itemId: foundItem.id,
-                        code: foundItem.code || '-',
-                        name: foundItem.name,
-                        qty: parseInt(qty) || 1,
-                        price: foundItem.price || 0,
-                        unit: foundItem.unit || '-'
-                    };
-                    setRequestList(prev => [...prev, newItem]);
-                    setScanCode(''); 
-                    setQty(1);
+                    // MODIFIED: Buka modal Qty, jangan langsung tambah ke list
+                    setTempScannedItem(foundItem);
+                    setQty(1); // Reset qty default ke 1
+                    setShowQtyInput(true); // Tampilkan modal
+                    setScanCode(''); // Clear input box agar siap scan lagi
                     return true;
                 } else {
                     alert('Barang tidak ditemukan dalam database.');
                     return false;
                 }
+            };
+
+            // NEW: Fungsi untuk konfirmasi input Qty dari modal
+            const confirmAddScannedItem = () => {
+                if (!tempScannedItem) return;
+                const val = parseInt(qty);
+                if (!val || val < 1) return alert('Jumlah minimal 1');
+
+                const newItem = {
+                    type: 'master',
+                    itemId: tempScannedItem.id,
+                    code: tempScannedItem.code || '-',
+                    name: tempScannedItem.name,
+                    qty: val,
+                    price: tempScannedItem.price || 0,
+                    unit: tempScannedItem.unit || '-'
+                };
+                
+                setRequestList(prev => [...prev, newItem]);
+                
+                // Reset state modal & temp item
+                setShowQtyInput(false);
+                setTempScannedItem(null);
+                setQty(1);
             };
 
             const handleAddItem = () => {
@@ -747,7 +768,6 @@
 
             const handleCameraScanSuccess = (decodedText) => {
                 setShowScanner(false);
-                setScanCode(decodedText);
                 const success = processAddItem(decodedText);
                 if (!success) {
                     setScanCode(decodedText);
@@ -797,6 +817,52 @@
                         onScanSuccess={handleCameraScanSuccess} 
                         onClose={() => setShowScanner(false)} 
                     />
+                )}
+
+                {/* MODAL INPUT QTY SETELAH SCAN */}
+                {showQtyInput && tempScannedItem && (
+                    <div className="fixed inset-0 z-[70] bg-black bg-opacity-80 flex flex-col items-center justify-center p-4">
+                        <div className="bg-white p-6 rounded-xl w-full max-w-sm animate-bounce-in shadow-2xl">
+                            <div className="text-center mb-4">
+                                <div className="bg-green-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-2 text-green-600">
+                                    <Check size={28} />
+                                </div>
+                                <h3 className="text-lg font-bold text-gray-800">Barang Ditemukan!</h3>
+                            </div>
+                            
+                            <div className="bg-gray-100 p-4 rounded-lg mb-4 border border-gray-200">
+                                <p className="text-xs text-gray-500 font-mono mb-1">Kode: {tempScannedItem.code}</p>
+                                <p className="font-bold text-gray-800 text-lg leading-tight">{tempScannedItem.name}</p>
+                                <p className="text-xs text-gray-500 mt-1">Unit: {tempScannedItem.unit}</p>
+                            </div>
+                            
+                            <div className="mb-6">
+                                <label className="block text-sm font-bold text-gray-700 mb-2 text-center">Masukkan Jumlah Barang</label>
+                                <div className="flex items-center justify-center gap-4">
+                                    <button onClick={()=>setQty(Math.max(1, parseInt(qty)-1))} className="text-gray-400 hover:text-gray-600"><MinusCircle size={32}/></button>
+                                    <input 
+                                        type="number" 
+                                        min="1" 
+                                        autoFocus
+                                        className="w-24 border-2 border-blue-500 rounded-lg p-3 text-center text-2xl font-bold outline-none focus:ring-4 focus:ring-blue-200" 
+                                        value={qty} 
+                                        onChange={(e) => setQty(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') confirmAddScannedItem();
+                                        }}
+                                    />
+                                    <button onClick={()=>setQty(parseInt(qty)+1)} className="text-gray-400 hover:text-gray-600"><PlusCircle size={32}/></button>
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-3">
+                                <button onClick={() => { setShowQtyInput(false); setTempScannedItem(null); }} className="flex-1 py-3 bg-gray-200 rounded-lg font-bold text-gray-700 hover:bg-gray-300">Batal</button>
+                                <button onClick={confirmAddScannedItem} className="flex-1 py-3 bg-blue-600 text-white rounded-lg font-bold shadow-lg hover:bg-blue-700 flex items-center justify-center gap-2">
+                                    <ShoppingCart size={18} /> Masuk Keranjang
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
