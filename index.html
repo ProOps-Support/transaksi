@@ -117,7 +117,7 @@
                 <div className="fixed inset-0 z-[60] bg-black bg-opacity-90 flex flex-col items-center justify-center p-4">
                     <div className="bg-white p-2 rounded-lg w-full max-w-sm relative">
                         <div id="reader" className="w-full h-64 bg-gray-200 rounded overflow-hidden"></div>
-                        <p className="text-center text-sm font-bold mt-2 text-gray-600">Arahkan kamera ke Barcode</p>
+                        <p className="text-center text-sm font-bold mt-2 text-gray-600">Arahkan kamera ke QR Code</p>
                     </div>
                     <button onClick={onClose} className="mt-6 bg-red-600 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
                         <X size={20} /> Batalkan Scan
@@ -822,7 +822,7 @@
                     <div className="md:col-span-12 flex flex-wrap gap-2 mb-2">
                         <button onClick={() => { setInputMode('master'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'master' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Search size={14}/> Cari Manual</button>
                         
-                        {isWithdrawal && <button onClick={() => { setInputMode('scan'); setQty(1); setShowScanner(true); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'scan' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600'}`}><ScanBarcode size={14}/> Scan Barcode</button>}
+                        {isWithdrawal && <button onClick={() => { setInputMode('scan'); setQty(1); setShowScanner(true); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'scan' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600'}`}><QrCode size={14}/> Scan QR Code</button>}
                         
                         <button onClick={() => { setInputMode('manual'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'manual' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Plus size={14}/> Input Baru</button>
                     </div>
@@ -846,11 +846,11 @@
                     {inputMode === 'scan' && (
                         <>
                         <div className="md:col-span-6">
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 text-orange-600">Scan Barcode / ID Barang</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1 text-orange-600">Scan QR Code / ID Barang</label>
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
                                     <input ref={scanInputRef} type="text" className="w-full border-2 border-orange-300 rounded-lg p-2.5 pl-9 outline-none focus:border-orange-500" placeholder="Scan disini..." value={scanCode} onChange={(e) => setScanCode(e.target.value)} onKeyDown={handleScanKeyDown}/>
-                                    <ScanBarcode className="absolute left-3 top-3 text-orange-400" size={18}/>
+                                    <QrCode className="absolute left-3 top-3 text-orange-400" size={18}/>
                                 </div>
                                 <button 
                                     onClick={() => setShowScanner(true)}
