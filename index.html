@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>User Portal - Inventaris ATK</title>
+    <title>Menu Transaksi - Inventaris ATK</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -13,11 +13,18 @@
     
     <!-- Babel untuk JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- HTML5-QRCode Library untuk Kamera HP -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     
     <style>
         body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none;  scrollbar-width: none; }
+        
+        /* Style khusus untuk Scanner */
+        #reader { width: 100%; }
+        #reader video { object-fit: cover; border-radius: 8px; }
         
         @media print {
             body * { visibility: hidden; }
@@ -38,18 +45,18 @@
             Package, ShoppingCart, History, Menu, Plus, Search, Trash2, Edit, Check, X, 
             AlertTriangle, FileText, Printer, Camera, Upload, Save, 
             Eraser, Users, Wifi, WifiOff, Calendar, ClipboardList, LogOut, ScanBarcode, QrCode,
-            Lock, User, Key, Unlock
+            Lock, User, Key, Unlock, Zap, Settings, Mail, Shield, Info, Send, Eye, EyeOff
         } from 'https://esm.sh/lucide-react@0.303.0';
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { 
-            getFirestore, collection, addDoc, doc, onSnapshot, query, orderBy
+            getFirestore, collection, addDoc, doc, onSnapshot, query, orderBy, setDoc, getDoc
         } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
         import { 
             getAuth, signInAnonymously, onAuthStateChanged 
         } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
-        // --- KONFIGURASI DATABASE (SAMA DENGAN ADMIN) ---
+        // --- KONFIGURASI DATABASE ---
         const firebaseConfig = {
             apiKey: "AIzaSyAn5SPEUZO8sIoYSL0YvRON80C-OzS7odA",
             authDomain: "stock-atk-2a300.firebaseapp.com",
@@ -81,6 +88,43 @@
                 {isOpen && <span className="flex-1 text-left text-sm font-medium whitespace-nowrap">{label}</span>}
             </button>
         );
+
+        // --- COMPONENT SCANNER KAMERA ---
+        const ScannerModal = ({ onScanSuccess, onClose }) => {
+            useEffect(() => {
+                const html5QrCode = new Html5Qrcode("reader");
+                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                
+                html5QrCode.start({ facingMode: "environment" }, config, (decodedText) => {
+                    html5QrCode.stop().then(() => {
+                        onScanSuccess(decodedText);
+                    });
+                })
+                .catch(err => {
+                    console.error("Error starting scanner", err);
+                    alert("Gagal membuka kamera. Pastikan izin kamera diberikan.");
+                    onClose();
+                });
+
+                return () => {
+                    if(html5QrCode.isScanning) {
+                        html5QrCode.stop().catch(err => console.error("Stop failed", err));
+                    }
+                };
+            }, []);
+
+            return (
+                <div className="fixed inset-0 z-[60] bg-black bg-opacity-90 flex flex-col items-center justify-center p-4">
+                    <div className="bg-white p-2 rounded-lg w-full max-w-sm relative">
+                        <div id="reader" className="w-full h-64 bg-gray-200 rounded overflow-hidden"></div>
+                        <p className="text-center text-sm font-bold mt-2 text-gray-600">Arahkan kamera ke Barcode</p>
+                    </div>
+                    <button onClick={onClose} className="mt-6 bg-red-600 text-white px-6 py-3 rounded-full font-bold shadow-lg flex items-center gap-2">
+                        <X size={20} /> Batalkan Scan
+                    </button>
+                </div>
+            );
+        };
 
         // --- SIGNATURE PAD ---
         class SignaturePad extends React.Component {
@@ -184,15 +228,218 @@
             }
         }
 
+        // --- COMPONENT: SETTINGS SCREEN ---
+        const SettingsScreen = ({ currentConfig, onSaveConfig }) => {
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [loginUser, setLoginUser] = useState('');
+            const [loginPass, setLoginPass] = useState('');
+            const [error, setError] = useState('');
+            
+            // Toggle Password Visibility States
+            const [showLoginPass, setShowLoginPass] = useState(false);
+            const [showAdminPass, setShowAdminPass] = useState(false);
+            const [showStaffPass, setShowStaffPass] = useState(false);
+
+            // Config State
+            const [email, setEmail] = useState('');
+            
+            // Admin Credentials
+            const [adminUser, setAdminUser] = useState('');
+            const [adminPass, setAdminPass] = useState('');
+
+            // Staff Credentials (NEW)
+            const [staffUser, setStaffUser] = useState('');
+            const [staffPass, setStaffPass] = useState('');
+
+            useEffect(() => {
+                if (currentConfig) {
+                    setEmail(currentConfig.email || '');
+                    
+                    setAdminUser(currentConfig.adminUser || 'admin');
+                    setAdminPass(currentConfig.adminPass || 'admin123');
+
+                    setStaffUser(currentConfig.staffUser || 'staff');
+                    setStaffPass(currentConfig.staffPass || 'staff123');
+                }
+            }, [currentConfig]);
+
+            const handleLogin = (e) => {
+                e.preventDefault();
+                const validUser = currentConfig?.adminUser || 'admin';
+                const validPass = currentConfig?.adminPass || 'admin123';
+
+                if (loginUser === validUser && loginPass === validPass) {
+                    setIsAuthenticated(true);
+                    setError('');
+                } else {
+                    setError('Username atau Password Admin salah!');
+                }
+            };
+
+            const handleSave = (e) => {
+                e.preventDefault();
+                if (!email || !adminUser || !adminPass || !staffUser || !staffPass) {
+                    alert('Semua data wajib diisi!');
+                    return;
+                }
+                onSaveConfig({
+                    email,
+                    adminUser,
+                    adminPass,
+                    staffUser,
+                    staffPass
+                });
+            };
+
+            if (!isAuthenticated) {
+                return (
+                    <div className="flex justify-center items-center h-full">
+                        <div className="bg-white p-8 rounded-xl shadow-lg border w-full max-w-sm">
+                            <div className="text-center mb-6">
+                                <div className="bg-gray-800 text-white w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Settings size={24}/>
+                                </div>
+                                <h2 className="text-xl font-bold">Pengaturan Sistem</h2>
+                                <p className="text-xs text-gray-500">Masukkan kredensial ADMIN</p>
+                            </div>
+                            <form onSubmit={handleLogin} className="space-y-4">
+                                <input type="text" placeholder="Username" className="w-full border p-2 rounded" value={loginUser} onChange={e=>setLoginUser(e.target.value)} />
+                                <div className="relative">
+                                    <input 
+                                        type={showLoginPass ? "text" : "password"} 
+                                        placeholder="Password" 
+                                        className="w-full border p-2 rounded pr-10" 
+                                        value={loginPass} 
+                                        onChange={e=>setLoginPass(e.target.value)} 
+                                    />
+                                    <button type="button" onClick={() => setShowLoginPass(!showLoginPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                        {showLoginPass ? <EyeOff size={18}/> : <Eye size={18}/>}
+                                    </button>
+                                </div>
+                                {error && <p className="text-red-500 text-xs text-center">{error}</p>}
+                                <button type="submit" className="w-full bg-gray-800 text-white p-2 rounded font-bold hover:bg-gray-900">Masuk</button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-2xl mx-auto bg-white p-8 rounded-xl shadow-sm border mb-20">
+                    <div className="flex items-center gap-3 mb-6 border-b pb-4">
+                        <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
+                            <Settings size={24} />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-bold text-gray-800">Konfigurasi Sistem</h2>
+                            <p className="text-sm text-gray-500">Atur email, admin, dan akses staff.</p>
+                        </div>
+                    </div>
+
+                    <form onSubmit={handleSave} className="space-y-8">
+                        {/* Email Settings */}
+                        <div className="bg-blue-50 p-5 rounded-lg border border-blue-100">
+                            <h3 className="font-bold text-blue-800 mb-4 flex items-center gap-2 border-b border-blue-200 pb-2"><Mail size={18}/> Metode Pengiriman Email</h3>
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Email Tujuan (Manager/Admin)</label>
+                                <input 
+                                    type="email" 
+                                    className="w-full border p-2.5 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white" 
+                                    value={email} 
+                                    onChange={e => setEmail(e.target.value)}
+                                    placeholder="contoh: manager@perusahaan.com"
+                                />
+                                <p className="text-xs text-gray-500 mt-2">
+                                    <span className="font-bold">Info:</span> Sistem akan membuka aplikasi email (Outlook/Gmail) di perangkat Anda untuk mengirim notifikasi secara manual.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Admin Credentials */}
+                        <div className="bg-gray-50 p-5 rounded-lg border border-gray-200">
+                            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 border-b border-gray-200 pb-2"><Shield size={18}/> Akses ADMIN (Pengaturan)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                    <input 
+                                        type="text" 
+                                        className="w-full border p-2.5 rounded-lg focus:ring-2 focus:ring-gray-500 outline-none bg-white" 
+                                        value={adminUser} 
+                                        onChange={e => setAdminUser(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                    <div className="relative">
+                                        <input 
+                                            type={showAdminPass ? "text" : "password"} 
+                                            className="w-full border p-2.5 rounded-lg focus:ring-2 focus:ring-gray-500 outline-none bg-white pr-10" 
+                                            value={adminPass} 
+                                            onChange={e => setAdminPass(e.target.value)}
+                                        />
+                                        <button type="button" onClick={() => setShowAdminPass(!showAdminPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                            {showAdminPass ? <EyeOff size={18}/> : <Eye size={18}/>}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Staff Credentials (NEW) */}
+                        <div className="bg-yellow-50 p-5 rounded-lg border border-yellow-200">
+                            <h3 className="font-bold text-yellow-800 mb-4 flex items-center gap-2 border-b border-yellow-200 pb-2"><Users size={18}/> Akses STAFF (Menu Permintaan)</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                                    <input 
+                                        type="text" 
+                                        className="w-full border p-2.5 rounded-lg focus:ring-2 focus:ring-yellow-500 outline-none bg-white" 
+                                        value={staffUser} 
+                                        onChange={e => setStaffUser(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                                    <div className="relative">
+                                        <input 
+                                            type={showStaffPass ? "text" : "password"} 
+                                            className="w-full border p-2.5 rounded-lg focus:ring-2 focus:ring-yellow-500 outline-none bg-white pr-10" 
+                                            value={staffPass} 
+                                            onChange={e => setStaffPass(e.target.value)}
+                                        />
+                                        <button type="button" onClick={() => setShowStaffPass(!showStaffPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                                            {showStaffPass ? <EyeOff size={18}/> : <Eye size={18}/>}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">*Akun ini digunakan oleh karyawan untuk masuk ke menu Permintaan Barang.</p>
+                        </div>
+
+                        <div className="flex justify-end pt-4">
+                            <button type="submit" className="bg-green-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-green-700 shadow-md flex items-center gap-2">
+                                <Save size={18}/> Simpan Konfigurasi
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            );
+        };
+
         // --- LOGIN SCREEN (EMBEDDED) ---
-        const LoginScreen = ({ onLogin }) => {
+        const LoginScreen = ({ onLogin, staffCredentials }) => {
             const [username, setUsername] = useState('');
             const [password, setPassword] = useState('');
+            const [showPassword, setShowPassword] = useState(false);
             const [error, setError] = useState('');
 
             const handleSubmit = (e) => {
                 e.preventDefault();
-                if (username === 'admin' && password === 'admin123') {
+                
+                const validUser = staffCredentials?.user || 'staff';
+                const validPass = staffCredentials?.pass || 'staff123';
+
+                if (username === validUser && password === validPass) {
                     onLogin();
                 } else {
                     setError('Username atau Password salah!');
@@ -206,7 +453,7 @@
                             <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
                                 <Lock size={32} />
                             </div>
-                            <h2 className="text-2xl font-bold text-gray-800">Login Diperlukan</h2>
+                            <h2 className="text-2xl font-bold text-gray-800">Login Staff</h2>
                             <p className="text-sm text-gray-500">Menu ini khusus untuk Staff Terdaftar</p>
                         </div>
                         
@@ -233,12 +480,19 @@
                                         <Key size={18} />
                                     </div>
                                     <input 
-                                        type="password" 
-                                        className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                        type={showPassword ? "text" : "password"} 
+                                        className="w-full pl-10 pr-10 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                                         placeholder="Password"
                                         value={password}
                                         onChange={(e) => setPassword(e.target.value)}
                                     />
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                                    >
+                                        {showPassword ? <EyeOff size={18}/> : <Eye size={18}/>}
+                                    </button>
                                 </div>
                             </div>
                             
@@ -258,8 +512,29 @@
             const title = isWithdrawal ? 'Formulir Pengambilan Barang' : 'Formulir Permintaan Barang';
             const docCode = isWithdrawal ? 'OUT' : 'REQ';
 
+            // Function to generate content for clipboard copy or email body (simplified)
+            const getSummary = () => {
+                const itemsList = data.items.map((i, idx) => `${idx+1}. ${i.name} (${i.qty} ${i.unit})`).join('\n');
+                return `Formulir: ${title}\nNo: ${docCode}/${data.id.slice(0, 8)}\nNama: ${data.userName}\nDept: ${data.department}\n\nItem:\n${itemsList}`;
+            }
+
             return (
                 <div className="fixed inset-0 bg-gray-800 z-50 overflow-auto flex flex-col items-center pt-10 pb-10">
+                    
+                    {/* INSTRUCTION BANNER FOR PRINT/EMAIL */}
+                    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4 w-[210mm] shadow-lg print:hidden">
+                        <div className="flex items-start">
+                            <div className="py-1"><Info size={20} className="mr-2"/></div>
+                            <div>
+                                <p className="font-bold">Dokumen Resmi:</p>
+                                <ol className="list-decimal ml-5 text-sm">
+                                    <li>Klik tombol <b>Cetak (PDF)</b> untuk menyimpan arsip.</li>
+                                    <li>Untuk mengirim email: Buka aplikasi email Anda, buat email baru, dan lampirkan file PDF yang baru saja disimpan.</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="bg-white w-[210mm] min-h-[297mm] p-[10mm] md:p-[20mm] shadow-2xl relative text-black text-sm md:text-base" id="print-area">
                         <div className="border-b-4 border-black pb-4 mb-6 flex justify-between items-end">
                             <div>
@@ -324,7 +599,7 @@
                     </div>
                     <div className="fixed top-5 right-5 flex gap-3 print:hidden">
                         <button onClick={onClose} className="bg-gray-600 text-white px-4 py-2 rounded shadow flex items-center gap-2"><X size={18} /> Tutup</button>
-                        <button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-2 rounded shadow flex items-center gap-2 font-bold"><Printer size={18} /> Cetak</button>
+                        <button onClick={() => window.print()} className="bg-blue-600 text-white px-6 py-2 rounded shadow flex items-center gap-2 font-bold"><Printer size={18} /> Cetak (PDF)</button>
                     </div>
                 </div>
             );
@@ -335,6 +610,7 @@
             const [name, setName] = useState('');
             const [department, setDepartment] = useState('');
             const [isManualDept, setIsManualDept] = useState(false);
+            const [loading, setLoading] = useState(false);
             
             const [requestDate, setRequestDate] = useState(new Date().toISOString().split('T')[0]);
             const [period, setPeriod] = useState('');
@@ -346,6 +622,9 @@
             const [manualName, setManualName] = useState('');
             const [manualPhoto, setManualPhoto] = useState(null); 
             const [requestList, setRequestList] = useState([]);
+            
+            // Scanner State
+            const [showScanner, setShowScanner] = useState(false);
             
             const sigCanvas = useRef(null);
             const [signatureData, setSignatureData] = useState(null);
@@ -364,57 +643,75 @@
                 }
             }, [inputMode]);
 
-            const handleAddItem = () => {
-                if (inputMode === 'manual') {
-                if (!manualName) return alert('Nama barang harus diisi');
-                const newItem = { type: 'manual', name: manualName, code: 'MANUAL', qty: parseInt(qty) || 1, price: 0, photo: manualPhoto };
-                setRequestList([...requestList, newItem]);
-                setManualName(''); setManualPhoto(null); setQty(1);
-                } else if (inputMode === 'master') {
-                if (!selectedItemId) return alert('Pilih barang');
-                const newItem = { 
-                    type: 'master', 
-                    itemId: selectedMasterItem.id,
-                    code: selectedMasterItem.code || '-',
-                    name: selectedMasterItem.name, 
-                    qty: parseInt(qty) || 1, 
-                    price: selectedMasterItem.price || 0, 
-                    unit: selectedMasterItem.unit || '-' 
-                };
-                setRequestList([...requestList, newItem]);
-                setSelectedItemId(''); setQty(1);
-                } else if (inputMode === 'scan') {
-                if (!scanCode) return alert('Kode scan kosong');
+            // Logic untuk memproses item setelah scan atau manual input
+            const processAddItem = (codeToAdd) => {
                 const foundItem = items.find(i => 
-                    (i.code && i.code.toLowerCase() === scanCode.toLowerCase()) || 
-                    (i.name && i.name.toLowerCase() === scanCode.toLowerCase()) ||
-                    (i.id === scanCode)
+                    (i.code && i.code.toLowerCase() === codeToAdd.toLowerCase()) || 
+                    (i.name && i.name.toLowerCase() === codeToAdd.toLowerCase()) ||
+                    (i.id === codeToAdd)
                 );
 
                 if (foundItem) {
                     const newItem = {
-                    type: 'master',
-                    itemId: foundItem.id,
-                    code: foundItem.code || '-',
-                    name: foundItem.name,
-                    qty: parseInt(qty) || 1,
-                    price: foundItem.price || 0,
-                    unit: foundItem.unit || '-'
+                        type: 'master',
+                        itemId: foundItem.id,
+                        code: foundItem.code || '-',
+                        name: foundItem.name,
+                        qty: parseInt(qty) || 1,
+                        price: foundItem.price || 0,
+                        unit: foundItem.unit || '-'
                     };
-                    setRequestList([...requestList, newItem]);
+                    setRequestList(prev => [...prev, newItem]);
                     setScanCode(''); 
                     setQty(1);
-                    scanInputRef.current?.focus(); 
+                    return true;
                 } else {
-                    alert('Barang tidak ditemukan.');
+                    alert('Barang tidak ditemukan dalam database.');
+                    return false;
                 }
+            };
+
+            const handleAddItem = () => {
+                if (inputMode === 'manual') {
+                    if (!manualName) return alert('Nama barang harus diisi');
+                    const newItem = { type: 'manual', name: manualName, code: 'MANUAL', qty: parseInt(qty) || 1, price: 0, photo: manualPhoto };
+                    setRequestList([...requestList, newItem]);
+                    setManualName(''); setManualPhoto(null); setQty(1);
+                } else if (inputMode === 'master') {
+                    if (!selectedItemId) return alert('Pilih barang');
+                    const newItem = { 
+                        type: 'master', 
+                        itemId: selectedMasterItem.id,
+                        code: selectedMasterItem.code || '-',
+                        name: selectedMasterItem.name, 
+                        qty: parseInt(qty) || 1, 
+                        price: selectedMasterItem.price || 0, 
+                        unit: selectedMasterItem.unit || '-' 
+                    };
+                    setRequestList([...requestList, newItem]);
+                    setSelectedItemId(''); setQty(1);
+                } else if (inputMode === 'scan') {
+                    if (!scanCode) return alert('Kode scan kosong');
+                    const success = processAddItem(scanCode);
+                    if (success) {
+                         scanInputRef.current?.focus(); 
+                    }
                 }
             };
 
             const handleScanKeyDown = (e) => {
                 if (e.key === 'Enter') {
-                e.preventDefault();
-                handleAddItem();
+                    e.preventDefault();
+                    handleAddItem();
+                }
+            };
+
+            const handleCameraScanSuccess = (decodedText) => {
+                setShowScanner(false);
+                setScanCode(decodedText);
+                const success = processAddItem(decodedText);
+                if (!success) {
+                    setScanCode(decodedText);
                 }
             };
 
@@ -435,7 +732,7 @@
                 }
             };
 
-            const handleSubmit = () => {
+            const handleSubmit = async () => {
                 if (!name || !department) return alert('Lengkapi data diri');
                 if (!requestDate || (!isWithdrawal && !period)) return alert('Lengkapi tanggal' + (!isWithdrawal ? ' & periode' : ''));
                 if (requestList.length === 0) return alert('Daftar barang kosong');
@@ -447,11 +744,22 @@
                 
                 if (!finalSig) return alert('Tanda tangan diperlukan');
 
-                onSubmit({ name, department, date: requestDate, period: isWithdrawal ? '-' : period, items: requestList, signature: finalSig, formType });
+                setLoading(true);
+                await onSubmit({ name, department, date: requestDate, period: isWithdrawal ? '-' : period, items: requestList, signature: finalSig, formType });
+                setLoading(false);
             };
 
             return (
-                <div className="max-w-4xl mx-auto space-y-8 pb-20">
+                <div className="max-w-4xl mx-auto space-y-8 pb-20 relative">
+                
+                {/* MODAL SCANNER */}
+                {showScanner && (
+                    <ScannerModal 
+                        onScanSuccess={handleCameraScanSuccess} 
+                        onClose={() => setShowScanner(false)} 
+                    />
+                )}
+
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                     <h3 className={`text-lg font-bold text-gray-800 border-b pb-3 mb-4 flex items-center gap-2`}>
                     <div className={`p-1.5 rounded bg-${themeColor}-100 text-${themeColor}-600`}>
@@ -511,9 +819,11 @@
 
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end bg-gray-50 p-4 rounded-lg">
                     
-                    <div className="md:col-span-12 flex gap-2 mb-2">
+                    <div className="md:col-span-12 flex flex-wrap gap-2 mb-2">
                         <button onClick={() => { setInputMode('master'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'master' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Search size={14}/> Cari Manual</button>
-                        {isWithdrawal && <button onClick={() => { setInputMode('scan'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'scan' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600'}`}><ScanBarcode size={14}/> Scan Barcode</button>}
+                        
+                        {isWithdrawal && <button onClick={() => { setInputMode('scan'); setQty(1); setShowScanner(true); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'scan' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600'}`}><ScanBarcode size={14}/> Scan Barcode</button>}
+                        
                         <button onClick={() => { setInputMode('manual'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'manual' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Plus size={14}/> Input Baru</button>
                     </div>
 
@@ -537,11 +847,19 @@
                         <>
                         <div className="md:col-span-6">
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1 text-orange-600">Scan Barcode / ID Barang</label>
-                            <div className="relative">
-                            <input ref={scanInputRef} type="text" className="w-full border-2 border-orange-300 rounded-lg p-2.5 pl-9 outline-none focus:border-orange-500" placeholder="Scan disini..." value={scanCode} onChange={(e) => setScanCode(e.target.value)} onKeyDown={handleScanKeyDown}/>
-                            <ScanBarcode className="absolute left-3 top-3 text-orange-400" size={18}/>
+                            <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                    <input ref={scanInputRef} type="text" className="w-full border-2 border-orange-300 rounded-lg p-2.5 pl-9 outline-none focus:border-orange-500" placeholder="Scan disini..." value={scanCode} onChange={(e) => setScanCode(e.target.value)} onKeyDown={handleScanKeyDown}/>
+                                    <ScanBarcode className="absolute left-3 top-3 text-orange-400" size={18}/>
+                                </div>
+                                <button 
+                                    onClick={() => setShowScanner(true)}
+                                    className="bg-orange-600 text-white p-2.5 rounded-lg hover:bg-orange-700 flex items-center gap-1 shadow-md whitespace-nowrap"
+                                >
+                                    <Camera size={18} /> <span className="hidden sm:inline">Buka Kamera</span>
+                                </button>
                             </div>
-                            <p className="text-xs text-gray-400 mt-1">*Tekan Enter setelah scan</p>
+                            <p className="text-xs text-gray-400 mt-1">*Gunakan Scanner USB atau Kamera HP</p>
                         </div>
                         <div className="md:col-span-2"></div>
                         </>
@@ -610,8 +928,8 @@
 
                 <div className="flex justify-end gap-4">
                     <button className="px-6 py-3 rounded-lg text-gray-600 hover:bg-gray-100 font-medium">Batal</button>
-                    <button onClick={handleSubmit} className={`px-8 py-3 rounded-lg bg-${themeColor}-600 hover:bg-${themeColor}-700 text-white font-bold shadow-lg flex items-center gap-2`}>
-                    <Save size={20}/> Simpan & Cetak
+                    <button onClick={handleSubmit} disabled={loading} className={`px-8 py-3 rounded-lg bg-${themeColor}-600 hover:bg-${themeColor}-700 text-white font-bold shadow-lg flex items-center gap-2 ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                    {loading ? 'Menyimpan...' : <><Save size={20}/> Simpan & Cetak</>}
                     </button>
                 </div>
                 </div>
@@ -656,6 +974,15 @@
             // Login State
             const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+            // Config State
+            const [appConfig, setAppConfig] = useState({
+                email: '',
+                adminUser: 'admin',
+                adminPass: 'admin123',
+                staffUser: 'staff',    // Default Staff User
+                staffPass: 'staff123'  // Default Staff Pass
+            });
+
             const showNotification = (msg, type = 'success') => {
                 setNotification({ message: msg, type });
                 setTimeout(() => setNotification(null), 3000);
@@ -675,13 +1002,40 @@
                 if (!user) return;
                 const unsubItems = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'items'), s => setItems(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>(a.name||'').localeCompare(b.name||''))));
                 const unsubReq = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), s => setRequests(s.docs.map(d => ({id:d.id, ...d.data()})).sort((a,b)=>new Date(b.createdAt||b.date)-new Date(a.createdAt||a.date))));
-                return () => { unsubItems(); unsubReq(); };
+                
+                // Load App Config
+                const unsubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'general_settings'), (docSnap) => {
+                    if (docSnap.exists()) {
+                        setAppConfig(docSnap.data());
+                    } else {
+                        // Default config if not exists
+                        setAppConfig({ 
+                            email: '', 
+                            adminUser: 'admin', 
+                            adminPass: 'admin123',
+                            staffUser: 'staff',
+                            staffPass: 'staff123'
+                        });
+                    }
+                });
+
+                return () => { unsubItems(); unsubReq(); unsubConfig(); };
             }, [user]);
+
+            const handleSaveConfig = async (newConfig) => {
+                try {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'config', 'general_settings'), newConfig);
+                    showNotification('Konfigurasi Berhasil Disimpan!');
+                } catch (e) {
+                    showNotification('Gagal menyimpan konfigurasi', 'error');
+                }
+            };
             
             // Auto-Add Manual items to Master & Submit
             const handleUserSubmit = async (formData) => {
                 if (!user) return;
                 try {
+                    // 1. Process Data
                     const processedItems = await Promise.all(formData.items.map(async (item) => {
                         if (item.type === 'manual') {
                             const existingItem = items.find(i => (i.name || '').toLowerCase() === (item.name || '').toLowerCase());
@@ -710,14 +1064,35 @@
 
                     const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'requests'), newRequest);
                     setPrintData({ id: docRef.id, ...newRequest }); 
-                    showNotification('Terkirim & Master Data Diupdate!');
-                } catch (e) { showNotification('Gagal mengirim', 'error'); }
+                    
+                    // --- LOGIKA EMAIL MANUAL (Mailto) ---
+                    // Jika ini adalah 'request' (Form Permintaan) dan ada email tujuan di config
+                    if (formData.formType === 'request' && appConfig.email) {
+                        
+                        const itemsList = processedItems.map((i, idx) => `${idx+1}. ${i.name} (${i.qty} ${i.unit})`).join('\n');
+                        const emailSubject = `Permintaan Barang Baru: ${newRequest.userName} (${newRequest.department})`;
+                        const emailBody = `Halo Admin,\n\nAda permintaan barang baru:\n\nNama: ${newRequest.userName}\nDepartemen: ${newRequest.department}\nTanggal: ${newRequest.date}\n\nList Item:\n${itemsList}\n\nSilakan cek portal untuk detailnya.`;
+                        
+                        // Buka draft email default
+                        window.open(`mailto:${appConfig.email}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`);
+                        
+                        // Trigger Print Dialog
+                        setTimeout(() => {
+                           window.print();
+                        }, 1000);
+                        showNotification(`Data tersimpan. Draft email & dialog cetak dibuka.`);
+                        
+                    } else {
+                        showNotification('Terkirim & Master Data Diupdate!');
+                    }
+
+                } catch (e) { showNotification('Gagal mengirim: ' + e.message, 'error'); }
             };
             
             // NAVIGATION HANDLER
             const handleNavClick = (view) => {
-                if (view === 'user-withdrawal') {
-                    // Public Access
+                if (view === 'user-withdrawal' || view === 'settings') {
+                    // Public Access (Settings has its own internal login)
                     setActiveView(view);
                 } else {
                     // Protected Access
@@ -752,6 +1127,10 @@
                             <NavItem icon={<ClipboardList size={20}/>} label="Pengambilan" isActive={activeView==='user-withdrawal'} onClick={()=>handleNavClick('user-withdrawal')} isOpen={isSidebarOpen} />
                             <NavItem icon={<FileText size={20}/>} label="Permintaan" isActive={activeView==='user-form'} onClick={()=>handleNavClick('user-form')} isOpen={isSidebarOpen} isLocked={!isLoggedIn} />
                             <NavItem icon={<History size={20}/>} label="Riwayat Saya" isActive={activeView==='user-transactions'} onClick={()=>handleNavClick('user-transactions')} isOpen={isSidebarOpen} isLocked={!isLoggedIn} />
+                            
+                            <div className="mt-8 pt-4 border-t border-slate-700">
+                                <NavItem icon={<Settings size={20}/>} label="Pengaturan" isActive={activeView==='settings'} onClick={()=>handleNavClick('settings')} isOpen={isSidebarOpen} />
+                            </div>
                         </nav>
                         <div className="p-4 border-t border-slate-700">
                             <div className={`flex items-center ${!isSidebarOpen && 'justify-center'}`}>
@@ -769,6 +1148,7 @@
                                 <h2 className="text-lg font-semibold text-gray-700">
                                     {activeView === 'user-withdrawal' ? 'Form Pengambilan (Umum)' : 
                                      activeView === 'login' ? 'Login Staff' :
+                                     activeView === 'settings' ? 'Pengaturan Sistem' :
                                      activeView === 'user-form' ? 'Form Permintaan (Staff)' : 'Riwayat Pengajuan'}
                                 </h2>
                             </div>
@@ -781,10 +1161,11 @@
                         </header>
                         
                         <div className="flex-1 overflow-auto p-4 md:p-6 bg-gray-50">
-                            {activeView === 'login' && <LoginScreen onLogin={handleLoginSuccess}/>}
+                            {activeView === 'login' && <LoginScreen onLogin={handleLoginSuccess} staffCredentials={{user: appConfig.staffUser, pass: appConfig.staffPass}} />}
                             {activeView === 'user-form' && <UserRequestForm items={items} onSubmit={handleUserSubmit} formType="request"/>}
                             {activeView === 'user-withdrawal' && <UserRequestForm items={items} onSubmit={handleUserSubmit} formType="withdrawal"/>}
                             {activeView === 'user-transactions' && <UserTransactionHistory requests={requests} onViewPdf={(req)=>setPrintData(req)}/>}
+                            {activeView === 'settings' && <SettingsScreen currentConfig={appConfig} onSaveConfig={handleSaveConfig}/>}
                         </div>
 
                         <footer className="bg-white border-t py-3 px-6 text-center text-xs text-gray-400">
