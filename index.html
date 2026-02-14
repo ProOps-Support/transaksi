@@ -929,7 +929,9 @@
                         
                         {isWithdrawal && <button onClick={() => { setInputMode('scan'); setQty(1); setShowScanner(true); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'scan' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600'}`}><QrCode size={14}/> Scan QR Code</button>}
                         
-                        <button onClick={() => { setInputMode('manual'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'manual' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Plus size={14}/> Input Baru</button>
+                        {!isWithdrawal && (
+                            <button onClick={() => { setInputMode('manual'); setQty(1); }} className={`px-3 py-1.5 text-sm rounded-full flex items-center gap-1 ${inputMode === 'manual' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-600'}`}><Plus size={14}/> Input Baru</button>
+                        )}
                     </div>
 
                     {inputMode === 'master' && (
